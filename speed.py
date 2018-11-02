@@ -59,27 +59,15 @@ def fit_beta_chunk(G, A, QS, AQtM, Di, DiQtY, DiAQtM, MQADQY):
 
         for i in range(p):
             Li = L[:, i * siz : i * siz + siz]
-            Ri = R[:, i * siz : i * siz + siz]
             Lim = Li[:, :d]
-            Rim = Ri[:, :d]
             Lig = Li[:, d:]
-            Rig = Ri[:, d:]
-            LimRim = dot(Lim.T, Rim)
-            LimRig = dot(Lim.T, Rig[:, [0]])
-            LigRig = dot(Lig[:, [0]].T, Rig[:, [0]])
 
-            # row0 = [LimRim, LimRig]
-            # row1 = [LimRig.T, LigRig]
             row0 = []
             row1 = []
             for l in range(i, p):
-                Ll = L[:, l * siz : l * siz + siz]
                 Rl = R[:, l * siz : l * siz + siz]
-                # Llm = Ll[:, :d]
                 Rlm = Rl[:, :d]
-                # Llg = Ll[:, d:]
                 Rlg = Rl[:, d:]
-                # LlmRlm = dot(Llm.T, Rlm)
                 LimRlm = dot(Lim.T, Rlm)
                 LimRlg = dot(Lim.T, Rlg[:, [0]])
                 LigRlg = dot(Lig[:, [0]].T, Rlg[:, [0]])
@@ -89,21 +77,6 @@ def fit_beta_chunk(G, A, QS, AQtM, Di, DiQtY, DiAQtM, MQADQY):
 
             rows.append(row0)
             rows.append(row1)
-
-            # LimRig = dot(Lim.T, Rig[:, [j]])
-            # LigRig = dot(Lig[:, [j]].T, Rig[:, [j]])
-
-            # LlmRlg = dot(Llm.T, Rlg[:, [j]])
-            # LlgRlg = dot(Llg[:, [j]].T, Rlg[:, [j]])
-
-            # denomi[(i, l, j)] = block(
-            #     [
-            #         [LimRim, LimRig, LimRlm, LimRlg],
-            #         [LimRig.T, LigRig, LimRlg.T, LigRlg],
-            #         [LimRlm.T, LimRlg, LlmRlm, LlmRlg],
-            #         [LimRlg.T, LigRlg.T, LlmRlg.T, LlgRlg],
-            #     ]
-            # )
 
         ncols = sum([r.shape[1] for r in rows[0]])
         nrows = ncols
@@ -133,7 +106,6 @@ def fit_beta_chunk(G, A, QS, AQtM, Di, DiQtY, DiAQtM, MQADQY):
         inds = triu_indices_from(deno, k=1)
         deno[(inds[1], inds[0])] = deno[inds]
 
-        # _denominator = outer(denomi[(0, 0)], denomi[(1, 0)])
         denominator = [deno]
         # denominator = [dot(i.T, j) for i, j in zip(DiAQtMG, AQtMG)]
 
@@ -146,6 +118,9 @@ def fit_beta_chunk(G, A, QS, AQtM, Di, DiQtY, DiAQtM, MQADQY):
 
         denominator = add.reduce(denominator)
         nominator = add.reduce(nominator)
+        print(denominator.shape)
+        print(nominator.shape)
+        print("-------------")
 
         beta = rsolve(denominator, nominator).reshape((-1, p), order="F")
         betas.append(beta)
@@ -330,7 +305,7 @@ def combine(A, B, p):
 
 
 if __name__ == "__main__":
-    single_snp()
+    # single_snp()
     test()
     # slow()
     # 2.37 s ± 28.9 ms per loop
