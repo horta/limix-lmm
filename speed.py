@@ -1,8 +1,19 @@
 from numpy.random import RandomState
 from numpy.testing import assert_allclose
-from numpy import dot, eye, add, kron, concatenate, array, zeros, triu_indices_from
+from numpy import (
+    block,
+    dot,
+    eye,
+    add,
+    kron,
+    concatenate,
+    array,
+    zeros,
+    triu_indices_from,
+    diag,
+)
 
-from numpy_sugar.linalg import rsolve, economic_qs
+from numpy_sugar.linalg import rsolve, economic_qs, dotd
 
 from limix_lmm._blk_diag import BlockDiag
 
@@ -44,86 +55,115 @@ def fit_beta_chunk(G, A, QS, AQtM, Di, DiQtY, DiAQtM, MQADQY):
 
     betas = []
     p = A.shape[0]
+
+    rows = []
+    AQtG = [kron(A, dot(Q.T, G)) for Q in QS[0]]
+    AQtMG = [combine(i, j, p) for i, j in zip(AQtM, AQtG)]
+    DiAQtG = [Di.dot(AQtG) for Di, AQtG in zip(Di, AQtG)]
+    DiAQtMG = [combine(i, j, p) for i, j in zip(DiAQtM, DiAQtG)]
+
+    L = DiAQtMG[0]
+    R = AQtMG[0]
+    siz = L.shape[1] // p
+    d = AQtM[0].shape[1] // p
+
+    for i in range(p):
+        Li = L[:, i * siz : i * siz + siz]
+        Lim = Li[:, :d]
+        Lig = Li[:, d:]
+
+        row0 = []
+        row1 = []
+        for l in range(i, p):
+            Rl = R[:, l * siz : l * siz + siz]
+            Rlm = Rl[:, :d]
+            Rlg = Rl[:, d:]
+            LimRlm = dot(Lim.T, Rlm)
+            LimRlg = dot(Lim.T, Rlg)
+            # LigRlg = dot(Lig[:, [0]].T, Rlg[:, [0]])
+            LigRlg = dotd(Lig.T, Rlg)
+
+            row0 += [LimRlm, LimRlg]
+            row1 += [LimRlg.T, diag(LigRlg)]
+
+        rows.append(row0)
+        rows.append(row1)
+
+    ncols = sum([r.shape[1] for r in rows[0]])
+    nrows = ncols
+    deno = zeros((nrows, ncols))
+    roffset = 0
+    coffset_start = 0
+    for ii in range(len(rows) // 2):
+        row0 = rows[ii * 2]
+        row1 = rows[ii * 2 + 1]
+        coffset = coffset_start
+        for jj in range(len(row1)):
+            r0, c0 = row0[jj].shape
+            deno[roffset : roffset + r0][:, coffset : coffset + c0] = row0[jj]
+
+            r1, c1 = row1[jj].shape
+            deno[roffset + r0 : roffset + r0 + r1][:, coffset : coffset + c1] = row1[jj]
+
+            coffset += c0
+
+        coffset_start += row0[0].shape[1] + row0[1].shape[1]
+        roffset += row0[0].shape[0] + row1[0].shape[0]
+
+    inds = triu_indices_from(deno, k=1)
+    deno[(inds[1], inds[0])] = deno[inds]
+
+    denominator = [deno]
+    # denominator = [dot(i.T, j) for i, j in zip(DiAQtMG, AQtMG)]
+
+    GQADQY = [dot(ii.T, j) for ii, j in zip(AQtG, DiQtY)]
+    # eu acho que devo usar order="C"
+    GQADQY = [i.reshape((G.shape[1], -1), order="F") for i in GQADQY]
+    # GQADQY = [dot(ii.T, j).reshape((1, -1), order="F") for ii, j in zip(AQtG, DiQtY)]
+    MQADQY = [i.reshape((d, -1), order="F") for i in MQADQY]
+    nominator = [concatenate([i, j], axis=0) for i, j in zip(MQADQY, GQADQY)]
+    nominator = [i.reshape((-1, 1), order="F") for i in nominator]
+
+    denominator = add.reduce(denominator)
+    nominator = add.reduce(nominator)
+    siz = nominator.shape[0] // p
     for j in range(G.shape[1]):
-
-        rows = []
-        AQtG = [kron(A, dot(Q.T, G[:, [j]])) for Q in QS[0]]
-        AQtMG = [combine(i, j, p) for i, j in zip(AQtM, AQtG)]
-        DiAQtG = [Di.dot(AQtG) for Di, AQtG in zip(Di, AQtG)]
-        DiAQtMG = [combine(i, j, p) for i, j in zip(DiAQtM, DiAQtG)]
-
-        L = DiAQtMG[0]
-        R = AQtMG[0]
-        siz = L.shape[1] // p
-        d = AQtM[0].shape[1] // p
-
+        nomj = []
         for i in range(p):
-            Li = L[:, i * siz : i * siz + siz]
-            Lim = Li[:, :d]
-            Lig = Li[:, d:]
+            nom = nominator[i * siz : i * siz + siz]
+            nomj.append(concatenate([nom[:d], nom[[d + j]]], axis=0))
+        nomj = concatenate(nomj, axis=0)
 
+        nsnps = G.shape[1]
+        # DENO = zeros((p * (d + 1), p * (d + 1)))
+        rows = []
+        for ii in range(p):
+            deno = denominator[ii * (d + nsnps) : ii * (d + nsnps) + (d + nsnps)]
             row0 = []
             row1 = []
-            for l in range(i, p):
-                Rl = R[:, l * siz : l * siz + siz]
-                Rlm = Rl[:, :d]
-                Rlg = Rl[:, d:]
-                LimRlm = dot(Lim.T, Rlm)
-                LimRlg = dot(Lim.T, Rlg[:, [0]])
-                LigRlg = dot(Lig[:, [0]].T, Rlg[:, [0]])
+            for jj in range(p):
+                denoij = deno[:, jj * (d + nsnps) : jj * (d + nsnps) + (d + nsnps)]
 
-                row0 += [LimRlm, LimRlg]
-                row1 += [LimRlg.T, LigRlg]
+                d0 = denoij[:d]
+                d1 = denoij[[j]]
 
+                d00 = d0[:, :d]
+                d01 = d0[:, [j]]
+                d10 = d1[:, :d]
+                d11 = d1[:, [j]]
+
+                row0.append(d00)
+                row0.append(d01)
+                row1.append(d10)
+                row1.append(d11)
             rows.append(row0)
             rows.append(row1)
 
-        ncols = sum([r.shape[1] for r in rows[0]])
-        nrows = ncols
-        deno = zeros((nrows, ncols))
-        row_offset = 0
-        col_offset_start = 0
-        for ii in range(len(rows) // 2):
-            row0 = rows[ii * 2]
-            row1 = rows[ii * 2 + 1]
-            col_offset = col_offset_start
-            for jj in range(len(row1)):
-                r0, c0 = row0[jj].shape
-                deno[row_offset : row_offset + r0][:, col_offset : col_offset + c0] = row0[
-                    jj
-                ]
-
-                r1, c1 = row1[jj].shape
-                deno[row_offset + r0 : row_offset + r0 + r1][
-                    :, col_offset : col_offset + c1
-                ] = row1[jj]
-
-                col_offset += c0
-
-            col_offset_start += row0[0].shape[1] + row0[1].shape[1]
-            row_offset += row0[0].shape[0] + row1[0].shape[0]
-
-        inds = triu_indices_from(deno, k=1)
-        deno[(inds[1], inds[0])] = deno[inds]
-
-        denominator = [deno]
-        # denominator = [dot(i.T, j) for i, j in zip(DiAQtMG, AQtMG)]
-
-        GQADQY = [
-            dot(ii.T, j).reshape((1, -1), order="F") for ii, j in zip(AQtG, DiQtY)
-        ]
-        MQADQY = [i.reshape((d, -1), order="F") for i in MQADQY]
-        nominator = [concatenate([i, j], axis=0) for i, j in zip(MQADQY, GQADQY)]
-        nominator = [i.reshape((-1, 1), order="F") for i in nominator]
-
-        denominator = add.reduce(denominator)
-        nominator = add.reduce(nominator)
-        print(denominator.shape)
-        print(nominator.shape)
-        print("-------------")
-
-        beta = rsolve(denominator, nominator).reshape((-1, p), order="F")
+        denom = block(rows)
+        beta = rsolve(denom, nomj).reshape((-1, p), order="F")
         betas.append(beta)
+        pass
+
     return betas
 
 
