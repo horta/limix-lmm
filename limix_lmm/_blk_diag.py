@@ -57,6 +57,11 @@ class BlockDiag(object):
                     D[row_offset + k, col_offset + k] = self._data[i, col_offset + k]
         return D
 
+    @property
+    def shape(self):
+        r = self._n * self._d
+        return (r, r)
+
     def set_block(self, i, j, v):
         r""" Set the block ``(i, j)``.
 
@@ -140,6 +145,10 @@ class BlockDiag(object):
                 v = concatenate([A.get_block(i, j), B.get_block(i, j)])
                 C.set_block(i, j, v)
         return C
+
+    def dot_kron(self, A, B):
+        r""" Implements D(A⊗B). """
+        return self.dot(kron(A, B))
 
 
 def _bd_dot(A, D):

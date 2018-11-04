@@ -1,6 +1,7 @@
 from numpy.random import RandomState
 from numpy.testing import assert_allclose
 from numpy import (
+    newaxis,
     block,
     dot,
     eye,
@@ -11,6 +12,9 @@ from numpy import (
     zeros,
     triu_indices_from,
     diag,
+    full,
+    asarray,
+    sqrt,
 )
 
 from numpy_sugar.linalg import rsolve, economic_qs, dotd
@@ -23,148 +27,89 @@ np.set_printoptions(precision=20)
 
 
 def fit_beta(Y, A, M, C0, C1, QS, G):
+    Q = QS[0][0]
+    S = QS[1]
+    # Assume full-rank
+    assert Q.shape[1] == S.shape[0]
+
     n, p = Y.shape
+    d = M.shape[1]
+    s = G.shape[1]
 
-    Di = [D.inv() for D in D(C0, C1, QS)]
-    QtY = [dot(Q.T, Y) for Q in QS[0] if Q.size > 0]
-    DiQtY = [Di.dot_vec(QtY) for Di, QtY in zip(Di, QtY)]
+    hM = dot(Q.T, M)
+    hG = dot(Q.T, G)
+    QtY = _vec(dot(Q.T, Y))
 
-    QtM = [dot(Q.T, M) for Q in QS[0] if Q.size > 0]
+    D12 = get_D12(C0, C1, QS).inv()
+    assert D12.shape == (n * p, n * p)
 
-    AQtM = [kron(A, QtM) for QtM in QtM]
+    u = D12.dot(QtY)
 
-    DiAQtM = [Di.dot(AQtM) for Di, AQtM in zip(Di, AQtM)]
+    aM = D12.dot_kron(A, hM)
+    aG = D12.dot_kron(A, hG)
 
-    MQADQY = [
-        dot(i.T, j).reshape((M.shape[1], -1), order="F") for i, j in zip(AQtM, DiQtY)
-    ]
+    assert aM.shape == (n * p, p * d)
+    assert aG.shape == (n * p, p * s)
 
-    chunks = compute_chunks(G)
+    oM = dot(u.T, aM)
+    oG = dot(u.T, aG)
 
-    start = 0
-    betas = []
-    for chunk in chunks:
-        end = start + chunk
-        betas += fit_beta_chunk(G[:, start:end], A, QS, AQtM, Di, DiQtY, DiAQtM, MQADQY)
-        start = end
+    assert oM.shape == (1, p * d)
+    assert oG.shape == (1, p * s)
 
-    return betas
+    MM = dot(aM.T, aM)
+    MG = dot(aM.T, aG)
+    GG = compute_gg(aG, n, s, p)
+    assert GG.shape == (p, p, p * s)
+
+    assert MM.shape == (p * d, p * d)
+    assert MG.shape == (p * d, p * s)
+    # assert GG.shape == (p * n, p * n)
+
+    # compute_lhs(MM, MG, GG, n, p, d, s)
+
+    return []
 
 
-def fit_beta_chunk(G, A, QS, AQtM, Di, DiQtY, DiAQtM, MQADQY):
+def compute_lhs(MM, MG, GG, n, p, d, s):
+    L = zeros((p * (d + 1), p * (d + 1)))
+    for i0 in range(p):
+        for i1 in range(p):
+            u = _get_blk(L, i0, i1, d + 1)
+            ul = u[:-1][:, :-1]
+            ul[:] = _get_blk(MM, i0, i1, d)
 
-    betas = []
-    p = A.shape[0]
+            ur = u[:-1][:, [-1]]
+            # ur[:] = _get_blk(MG, i0, i1, d, s)
 
-    rows = []
-    AQtG = [kron(A, dot(Q.T, G)) for Q in QS[0]]
-    AQtMG = [combine(i, j, p) for i, j in zip(AQtM, AQtG)]
-    DiAQtG = [Di.dot(AQtG) for Di, AQtG in zip(Di, AQtG)]
-    DiAQtMG = [combine(i, j, p) for i, j in zip(DiAQtM, DiAQtG)]
+            ll = u[[-1]][:, :-1]
+            # ll[:] = ur[:].T
 
-    L = DiAQtMG[0]
-    R = AQtMG[0]
-    siz = L.shape[1] // p
-    d = AQtM[0].shape[1] // p
+            lr = u[[-1]][:, [-1]]
 
+            lr[:] = _get_blk(GG, i0, i1, 1, 1)
+
+
+def compute_gg(aG, n, s, p):
+    GG = zeros((p, p, p * s))
     for i in range(p):
-        Li = L[:, i * siz : i * siz + siz]
-        Lim = Li[:, :d]
-        Lig = Li[:, d:]
+        a = _row_blk(aG, i, n)
+        for j in range(p):
+            b = _row_blk(aG, j, n)
+            GG[i, j, :] = dotd(a.T, b)
+    return GG
 
-        row0 = []
-        row1 = []
-        for l in range(i, p):
-            Rl = R[:, l * siz : l * siz + siz]
-            Rlm = Rl[:, :d]
-            Rlg = Rl[:, d:]
-            LimRlm = dot(Lim.T, Rlm)
-            LimRlg = dot(Lim.T, Rlg)
-            # LigRlg = dot(Lig[:, [0]].T, Rlg[:, [0]])
-            LigRlg = dotd(Lig.T, Rlg)
 
-            row0 += [LimRlm, LimRlg]
-            row1 += [LimRlg.T, diag(LigRlg)]
+def _get_blk(A, i, j, lblk_size, rblk_size=None):
+    if rblk_size is None:
+        rblk_size = lblk_size
+    A = A[i * lblk_size : (i + 1) * lblk_size, :]
+    A = A[:, j * rblk_size : (j + 1) * rblk_size]
+    return A
 
-        rows.append(row0)
-        rows.append(row1)
 
-    ncols = sum([r.shape[1] for r in rows[0]])
-    nrows = ncols
-    deno = zeros((nrows, ncols))
-    roffset = 0
-    coffset_start = 0
-    for ii in range(len(rows) // 2):
-        row0 = rows[ii * 2]
-        row1 = rows[ii * 2 + 1]
-        coffset = coffset_start
-        for jj in range(len(row1)):
-            r0, c0 = row0[jj].shape
-            deno[roffset : roffset + r0][:, coffset : coffset + c0] = row0[jj]
-
-            r1, c1 = row1[jj].shape
-            deno[roffset + r0 : roffset + r0 + r1][:, coffset : coffset + c1] = row1[jj]
-
-            coffset += c0
-
-        coffset_start += row0[0].shape[1] + row0[1].shape[1]
-        roffset += row0[0].shape[0] + row1[0].shape[0]
-
-    inds = triu_indices_from(deno, k=1)
-    deno[(inds[1], inds[0])] = deno[inds]
-
-    denominator = [deno]
-    # denominator = [dot(i.T, j) for i, j in zip(DiAQtMG, AQtMG)]
-
-    GQADQY = [dot(ii.T, j) for ii, j in zip(AQtG, DiQtY)]
-    # eu acho que devo usar order="C"
-    GQADQY = [i.reshape((G.shape[1], -1), order="F") for i in GQADQY]
-    # GQADQY = [dot(ii.T, j).reshape((1, -1), order="F") for ii, j in zip(AQtG, DiQtY)]
-    MQADQY = [i.reshape((d, -1), order="F") for i in MQADQY]
-    nominator = [concatenate([i, j], axis=0) for i, j in zip(MQADQY, GQADQY)]
-    nominator = [i.reshape((-1, 1), order="F") for i in nominator]
-
-    denominator = add.reduce(denominator)
-    nominator = add.reduce(nominator)
-    siz = nominator.shape[0] // p
-    for j in range(G.shape[1]):
-        nomj = []
-        for i in range(p):
-            nom = nominator[i * siz : i * siz + siz]
-            nomj.append(concatenate([nom[:d], nom[[d + j]]], axis=0))
-        nomj = concatenate(nomj, axis=0)
-
-        nsnps = G.shape[1]
-        # DENO = zeros((p * (d + 1), p * (d + 1)))
-        rows = []
-        for ii in range(p):
-            deno = denominator[ii * (d + nsnps) : ii * (d + nsnps) + (d + nsnps)]
-            row0 = []
-            row1 = []
-            for jj in range(p):
-                denoij = deno[:, jj * (d + nsnps) : jj * (d + nsnps) + (d + nsnps)]
-
-                d0 = denoij[:d]
-                d1 = denoij[[j]]
-
-                d00 = d0[:, :d]
-                d01 = d0[:, [j]]
-                d10 = d1[:, :d]
-                d11 = d1[:, [j]]
-
-                row0.append(d00)
-                row0.append(d01)
-                row1.append(d10)
-                row1.append(d11)
-            rows.append(row0)
-            rows.append(row1)
-
-        denom = block(rows)
-        beta = rsolve(denom, nomj).reshape((-1, p), order="F")
-        betas.append(beta)
-        pass
-
-    return betas
+def _row_blk(A, blk, blk_size):
+    return A[blk * blk_size : (blk + 1) * blk_size]
 
 
 def compute_chunks(G):
@@ -175,7 +120,7 @@ def compute_chunks(G):
     return chunks
 
 
-def D(C0, C1, QS):
+def get_D12(C0, C1, QS):
     C0 = C0
     C1 = C1
     S0 = QS[1]
@@ -193,7 +138,15 @@ def D(C0, C1, QS):
             if len(D) > 1:
                 D[1].set_block(i, j, full(n - r, C1[i, j]))
 
+    D = D[0]
+    D._data = sqrt(D._data)
+
     return D
+
+
+def _vec(X):
+    X = asarray(X, float)
+    return X.reshape((-1, 1), order="F")
 
 
 def test():
