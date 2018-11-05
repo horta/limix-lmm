@@ -124,7 +124,7 @@ class BlockDiag(object):
         return _bd_dotd(self, B)
 
     def dot_vec(self, B):
-        return self.dot(_vec(B))
+        return dot_vec(self, B)
 
     def concat(self, B):
         r""" Concatenate two block diagonals on the column axis.
@@ -272,5 +272,7 @@ def _vec(A):
 
 
 def dot_vec(A, B):
-    r""" Implements ``dot(A, vec(B))``. """
-    return dot(A, B.reshape((-1, 1), order="F"))
+    r""" Implements ``unvec(dot(A, vec(B)))``. """
+    n = B.shape[1]
+    return A.dot(B.reshape((-1, 1), order="F")).reshape((-1, n), order="F")
+

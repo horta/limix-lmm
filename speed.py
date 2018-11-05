@@ -19,7 +19,7 @@ from numpy import (
 
 from numpy_sugar.linalg import rsolve, economic_qs, dotd
 
-from limix_lmm._blk_diag import BlockDiag
+from limix_lmm._blk_diag import BlockDiag, dot_vec
 
 import numpy as np
 
@@ -36,58 +36,67 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
     d = M.shape[1]
     s = G.shape[1]
 
-    hM = dot(Q.T, M)
-    hG = dot(Q.T, G)
-    QtY = _vec(dot(Q.T, Y))
-
     D12 = get_D12(C0, C1, QS).inv()
     assert D12.shape == (n * p, n * p)
 
-    u = D12.dot(QtY)
+    U = D12.dot_vec(dot(Q.T, Y))
+    hM = D12.dot_kron(A, dot(Q.T, G))
+    hG = D12.dot_kron(A, dot(Q.T, M))
 
-    aM = D12.dot_kron(A, hM)
-    aG = D12.dot_kron(A, hG)
+    assert U.shape == (n, p)
+    assert hM.shape == (p * n, p * d)
+    assert hG.shape == (p * n, p * s)
 
-    assert aM.shape == (n * p, p * d)
-    assert aG.shape == (n * p, p * s)
+    UM = dot_vec(hM.T, U).T
+    UG = dot_vec(hG.T, U).T
 
-    oM = dot(u.T, aM)
-    oG = dot(u.T, aG)
+    assert UM.shape == (p, d)
+    assert UG.shape == (p, s)
 
-    assert oM.shape == (1, p * d)
-    assert oG.shape == (1, p * s)
+    R = compute_rhs(UM, UG, 0, p, d)
 
-    MM = dot(aM.T, aM)
-    MG = dot(aM.T, aG)
-    GG = compute_gg(aG, n, s, p)
-    assert GG.shape == (p, p, p * s)
+    assert R.shape == (p, d + 1)
 
-    assert MM.shape == (p * d, p * d)
-    assert MG.shape == (p * d, p * s)
-    # assert GG.shape == (p * n, p * n)
+    # return []
+    # MM = dot(aM.T, aM)
+    # MG = dot(aM.T, aG)
+    # GG = compute_gg(aG, n, s, p)
+    # assert GG.shape == (p, p, p * s)
 
-    # compute_lhs(MM, MG, GG, n, p, d, s)
+    # assert MM.shape == (p * d, p * d)
+    # assert MG.shape == (p * d, p * s)
+    # # assert GG.shape == (p * n, p * n)
+
+    # # compute_lhs(MM, MG, GG, n, p, d, s)
 
     return []
+
+
+def compute_rhs(UM, UG, j, p, d):
+    R = zeros((p, d + 1))
+    for i in range(p):
+        R[i, :-1] = UM[i, :]
+        R[i, -1] = UG[i, j]
+    return R
 
 
 def compute_lhs(MM, MG, GG, n, p, d, s):
     L = zeros((p * (d + 1), p * (d + 1)))
     for i0 in range(p):
         for i1 in range(p):
-            u = _get_blk(L, i0, i1, d + 1)
+            u = get(L, i0, i1, d + 1)
             ul = u[:-1][:, :-1]
-            ul[:] = _get_blk(MM, i0, i1, d)
+            ul[:] = get(MM, i0, i1, d)
 
             ur = u[:-1][:, [-1]]
-            # ur[:] = _get_blk(MG, i0, i1, d, s)
+            # ur[:] = get(MG, i0, i1, d, s)
 
             ll = u[[-1]][:, :-1]
             # ll[:] = ur[:].T
 
             lr = u[[-1]][:, [-1]]
 
-            lr[:] = _get_blk(GG, i0, i1, 1, 1)
+            lr[:] = get(GG, i0, i1, 1, 1)
 
 
 def compute_gg(aG, n, s, p):
@@ -100,11 +109,11 @@ def compute_gg(aG, n, s, p):
     return GG
 
 
-def _get_blk(A, i, j, lblk_size, rblk_size=None):
-    if rblk_size is None:
-        rblk_size = lblk_size
-    A = A[i * lblk_size : (i + 1) * lblk_size, :]
-    A = A[:, j * rblk_size : (j + 1) * rblk_size]
+def get(A, i, j, lsiz, rsiz=None):
+    if rsiz is None:
+        rsiz = lsiz
+    A = A[i * lsiz : (i + 1) * lsiz, :]
+    A = A[:, j * rsiz : (j + 1) * rsiz]
     return A
 
 
