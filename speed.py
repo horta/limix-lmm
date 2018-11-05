@@ -69,7 +69,13 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
 
     # print(R)
     # print(L)
-    return rsolve(L, R.reshape((-1, 1), order="F"))
+    import numpy as np
+
+    L0 = np.load("../denominator.npy")
+    R0 = np.load("../nominator.npy")
+    print(abs(R.reshape((-1, 1), order="C") - R0).max())
+    print(abs(L - L0).max())
+    return rsolve(L, R.reshape((-1, 1), order="C"))
 
 
 def compute_rhs(UM, UG, j, p, d):
@@ -95,23 +101,6 @@ def compute_lhs(MM, MG, GG, n, p, d, s, l):
         L.append(row1)
     return block(L)
 
-    # L = zeros((p * (d + 1), p * (d + 1)))
-    # for i0 in range(p):
-    #     for i1 in range(p):
-    #         u = get(L, i0, i1, d + 1)
-    #         ul = u[:-1][:, :-1]
-    #         ul[:] = get(MM, i0, i1, d)
-
-    #         ur = u[:-1][:, [-1]]
-    #         # ur[:] = get(MG, i0, i1, d, s)
-
-    #         ll = u[[-1]][:, :-1]
-    #         # ll[:] = ur[:].T
-
-    #         lr = u[[-1]][:, [-1]]
-
-    #         lr[:] = get(GG, i0, i1, 1, 1)
-
 
 def compute_gg(hG, n, s, p):
     GG = BlockDiag(p, s)
@@ -119,7 +108,7 @@ def compute_gg(hG, n, s, p):
         a = _row_blk(hG, i, n)
         for j in range(p):
             b = _row_blk(hG, j, n)
-            GG.set_block(i, j, dotd(a.T, b).reshape((p, s)).sum(axis=0))
+            GG.set_block(i, j, dotd(a.T, b).reshape((p, s), order="F").sum(axis=0))
     return GG
 
 
@@ -394,8 +383,8 @@ def combine(A, B, p):
 if __name__ == "__main__":
     # single_snp()
     # single_snp_p1()
-    test()
-    # test2()
+    # test()
+    test2()
     # slow()
     # 2.37 s ± 28.9 ms per loop
     # 1.57 s ± 32.2 ms per loop
