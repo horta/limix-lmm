@@ -57,19 +57,18 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
 
     assert R.shape == (p, d + 1)
 
-    # return []
-    # MM = dot(aM.T, aM)
-    # MG = dot(aM.T, aG)
-    # GG = compute_gg(aG, n, s, p)
-    # assert GG.shape == (p, p, p * s)
+    MM = dot(hM.T, hM)
+    MG = dot(hM.T, hG)
+    GG = compute_gg(hG, n, s, p)
 
-    # assert MM.shape == (p * d, p * d)
-    # assert MG.shape == (p * d, p * s)
-    # # assert GG.shape == (p * n, p * n)
+    assert MM.shape == (p * d, p * d)
+    assert MG.shape == (p * d, p * s)
+    assert GG.shape == (p * s, p * s)
 
-    # # compute_lhs(MM, MG, GG, n, p, d, s)
-
-    return []
+    L = compute_lhs(MM, MG, GG, n, p, d, s, 0)
+    print(L.shape)
+    print(R.shape)
+    return rsolve(L, R.reshape((-1, 1), order="F"))
 
 
 def compute_rhs(UM, UG, j, p, d):
@@ -80,32 +79,46 @@ def compute_rhs(UM, UG, j, p, d):
     return R
 
 
-def compute_lhs(MM, MG, GG, n, p, d, s):
-    L = zeros((p * (d + 1), p * (d + 1)))
-    for i0 in range(p):
-        for i1 in range(p):
-            u = get(L, i0, i1, d + 1)
-            ul = u[:-1][:, :-1]
-            ul[:] = get(MM, i0, i1, d)
-
-            ur = u[:-1][:, [-1]]
-            # ur[:] = get(MG, i0, i1, d, s)
-
-            ll = u[[-1]][:, :-1]
-            # ll[:] = ur[:].T
-
-            lr = u[[-1]][:, [-1]]
-
-            lr[:] = get(GG, i0, i1, 1, 1)
-
-
-def compute_gg(aG, n, s, p):
-    GG = zeros((p, p, p * s))
+def compute_lhs(MM, MG, GG, n, p, d, s, l):
+    L = []
     for i in range(p):
-        a = _row_blk(aG, i, n)
+        row0 = []
+        row1 = []
         for j in range(p):
-            b = _row_blk(aG, j, n)
-            GG[i, j, :] = dotd(a.T, b)
+            mg = get(MG, i, j, d, s)[:, [l]]
+            row0 += [get(MM, i, j, d), mg]
+            gg = GG.get_block(i, j)[l][newaxis, newaxis]
+            row1 += [mg.T, gg]
+
+        L.append(row0)
+        L.append(row1)
+    return block(L)
+
+    # L = zeros((p * (d + 1), p * (d + 1)))
+    # for i0 in range(p):
+    #     for i1 in range(p):
+    #         u = get(L, i0, i1, d + 1)
+    #         ul = u[:-1][:, :-1]
+    #         ul[:] = get(MM, i0, i1, d)
+
+    #         ur = u[:-1][:, [-1]]
+    #         # ur[:] = get(MG, i0, i1, d, s)
+
+    #         ll = u[[-1]][:, :-1]
+    #         # ll[:] = ur[:].T
+
+    #         lr = u[[-1]][:, [-1]]
+
+    #         lr[:] = get(GG, i0, i1, 1, 1)
+
+
+def compute_gg(hG, n, s, p):
+    GG = BlockDiag(p, s)
+    for i in range(p):
+        a = _row_blk(hG, i, n)
+        for j in range(p):
+            b = _row_blk(hG, j, n)
+            GG.set_block(i, j, dotd(a.T, b).reshape((p, s)).sum(axis=0))
     return GG
 
 
