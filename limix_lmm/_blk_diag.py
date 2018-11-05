@@ -1,6 +1,18 @@
 from __future__ import division
 
-from numpy import zeros, concatenate, add, kron, stack, sum, log, block, asarray, dot
+from numpy import (
+    zeros,
+    concatenate,
+    add,
+    kron,
+    stack,
+    sum,
+    log,
+    block,
+    asarray,
+    dot,
+    sqrt,
+)
 
 from numpy_sugar.linalg import ddot
 
@@ -99,6 +111,16 @@ class BlockDiag(object):
             Inverse of this matrix.
         """
         return BlockDiag(self._d, self._n, _rinv(self._data))
+
+    def sqrt(self):
+        import scipy as sp
+        n = self._n
+        A = sp.linalg.sqrtm(self.matrix())
+        for i in range(self._d):
+            for j in range(self._d):
+                a = A[i * n : (i + 1) * n][:, j * n : (j + 1) * n]
+                self.set_block(i, j, a.diagonal())
+        return self
 
     @property
     def T(self):
@@ -275,4 +297,3 @@ def dot_vec(A, B):
     r""" Implements ``unvec(dot(A, vec(B)))``. """
     n = B.shape[1]
     return A.dot(B.reshape((-1, 1), order="F")).reshape((-1, n), order="F")
-

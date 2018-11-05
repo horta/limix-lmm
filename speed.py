@@ -36,12 +36,13 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
     d = M.shape[1]
     s = G.shape[1]
 
-    D12 = get_D12(C0, C1, QS).inv()
+    D = get_D12(C0, C1, QS).inv()
+    D12 = D.inv().sqrt()
     assert D12.shape == (n * p, n * p)
 
     U = D12.dot_vec(dot(Q.T, Y))
-    hM = D12.dot_kron(A, dot(Q.T, G))
-    hG = D12.dot_kron(A, dot(Q.T, M))
+    hM = D12.dot_kron(A, dot(Q.T, M))
+    hG = D12.dot_kron(A, dot(Q.T, G))
 
     assert U.shape == (n, p)
     assert hM.shape == (p * n, p * d)
@@ -66,8 +67,9 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
     assert GG.shape == (p * s, p * s)
 
     L = compute_lhs(MM, MG, GG, n, p, d, s, 0)
-    print(L.shape)
-    print(R.shape)
+
+    print(R)
+    print(L)
     return rsolve(L, R.reshape((-1, 1), order="F"))
 
 
@@ -161,7 +163,6 @@ def get_D12(C0, C1, QS):
                 D[1].set_block(i, j, full(n - r, C1[i, j]))
 
     D = D[0]
-    D._data = sqrt(D._data)
 
     return D
 
@@ -239,6 +240,36 @@ def test():
             ).reshape((-1, p), order="F"),
         ],
     )
+
+
+def test2():
+
+    random = RandomState(0)
+    # samples
+    n = 5
+    # traits
+    p = 2
+    # covariates
+    d = 3
+    # snps
+    s = 4
+
+    Y = random.randn(n, p)
+    A = random.randn(p, p)
+    A = dot(A, A.T)
+    M = random.randn(n, d)
+    K = random.randn(n, n)
+    K = (K - K.mean(0)) / K.std(0)
+    K = K.dot(K.T) + eye(n) + 1e-3
+    QS = economic_qs(K)
+
+    C0 = random.randn(p, p)
+    C0 = dot(C0, C0.T)
+    C1 = random.randn(p, p)
+    C1 = dot(C1, C1.T)
+    G = random.randn(n, s)
+
+    betas = fit_beta(Y, A, M, C0, C1, QS, G)
 
 
 def single_snp():
@@ -320,8 +351,9 @@ def combine(A, B, p):
 
 
 if __name__ == "__main__":
-    # single_snp()
-    test()
+    single_snp()
+    # test()
+    # test2()
     # slow()
     # 2.37 s ± 28.9 ms per loop
     # 1.57 s ± 32.2 ms per loop
