@@ -116,11 +116,12 @@ class BlockDiag(object):
         import scipy as sp
         n = self._n
         A = sp.linalg.sqrtm(self.matrix())
+        B = BlockDiag(self._d, self._n)
         for i in range(self._d):
             for j in range(self._d):
                 a = A[i * n : (i + 1) * n][:, j * n : (j + 1) * n]
-                self.set_block(i, j, a.diagonal())
-        return self
+                B.set_block(i, j, a.diagonal())
+        return B
 
     @property
     def T(self):

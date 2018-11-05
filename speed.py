@@ -36,8 +36,7 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
     d = M.shape[1]
     s = G.shape[1]
 
-    D = get_D12(C0, C1, QS).inv()
-    D12 = D.inv().sqrt()
+    D12 = get_D(C0, C1, QS).inv().sqrt()
     assert D12.shape == (n * p, n * p)
 
     U = D12.dot_vec(dot(Q.T, Y))
@@ -68,8 +67,8 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
 
     L = compute_lhs(MM, MG, GG, n, p, d, s, 0)
 
-    print(R)
-    print(L)
+    # print(R)
+    # print(L)
     return rsolve(L, R.reshape((-1, 1), order="F"))
 
 
@@ -144,7 +143,7 @@ def compute_chunks(G):
     return chunks
 
 
-def get_D12(C0, C1, QS):
+def get_D(C0, C1, QS):
     C0 = C0
     C1 = C1
     S0 = QS[1]
@@ -314,6 +313,48 @@ def single_snp():
     )
 
 
+def single_snp_p1():
+
+    random = RandomState(0)
+    # samples
+    n = 5
+    # traits
+    p = 1
+    # covariates
+    d = 3
+    # snps
+    s = 1
+
+    Y = random.randn(n, p)
+    A = random.randn(p, p)
+    A = dot(A, A.T)
+    M = random.randn(n, d)
+    K = random.randn(n, n)
+    K = (K - K.mean(0)) / K.std(0)
+    K = K.dot(K.T) + eye(n) + 1e-3
+    QS = economic_qs(K)
+
+    C0 = random.randn(p, p)
+    C0 = dot(C0, C0.T)
+    C1 = random.randn(p, p)
+    C1 = dot(C1, C1.T)
+    G = random.randn(n, s)
+
+    betas = fit_beta(Y, A, M, C0, C1, QS, G)
+
+    assert_allclose(
+        betas,
+        [
+            [
+                [-0.37773647655749726, -0.1461512668078721],
+                [0.39619583249297224, -1.0620842567135134],
+                [0.2696841276251685, -1.080005990730115],
+                [0.14900547377519524, -1.5949226353531243],
+            ]
+        ],
+    )
+
+
 def slow():
     random = RandomState(0)
     # samples
@@ -351,8 +392,9 @@ def combine(A, B, p):
 
 
 if __name__ == "__main__":
-    single_snp()
-    # test()
+    # single_snp()
+    # single_snp_p1()
+    test()
     # test2()
     # slow()
     # 2.37 s ± 28.9 ms per loop
