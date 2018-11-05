@@ -59,13 +59,15 @@ def fit_beta(Y, A, M, C0, C1, QS, G):
 
     MM = dot(hM.T, hM)
     MG = dot(hM.T, hG)
-    GG = compute_gg(hG, n, s, p)
+    GG = dot(hG.T, hG)
+    # GG = compute_gg(hG, n, s, p)
 
     assert MM.shape == (p * d, p * d)
     assert MG.shape == (p * d, p * s)
     assert GG.shape == (p * s, p * s)
 
-    L = compute_lhs(MM, MG, GG, n, p, d, s, 0)
+    L = compute_lhs_slow(MM, MG, GG, n, p, d, s, 0)
+    # L = compute_lhs(MM, MG, GG, n, p, d, s, 0)
 
     # print(R)
     # print(L)
@@ -84,6 +86,23 @@ def compute_rhs(UM, UG, j, p, d):
         R[i, :-1] = UM[i, :]
         R[i, -1] = UG[i, j]
     return R
+
+
+def compute_lhs_slow(MM, MG, GG, n, p, d, s, l):
+    L = []
+    for i in range(p):
+        row0 = []
+        row1 = []
+        for j in range(p):
+            mg = get(MG, i, j, d, s)[:, [l]]
+            row0 += [get(MM, i, j, d), mg]
+            # gg = GG.get_block(i, j)[l][newaxis, newaxis]
+            gg = get(GG, i, j, s)
+            row1 += [mg.T, gg[[l], [l]]]
+
+        L.append(row0)
+        L.append(row1)
+    return block(L)
 
 
 def compute_lhs(MM, MG, GG, n, p, d, s, l):
