@@ -59,8 +59,9 @@ def fit_beta(Y, A, M, C0, C1, QS, G, snp):
 
     MM = dot(hM.T, hM)
     MG = dot(hM.T, hG)
-    GG = dot(hG.T, hG)
-    # GG = compute_gg(hG, n, s, p)
+    # GG = dot(hG.T, hG)
+    GG = compute_gg(hG, n, s, p)
+    GG = GG.matrix()
 
     assert MM.shape == (p * d, p * d)
     assert MG.shape == (p * d, p * s)
@@ -69,14 +70,6 @@ def fit_beta(Y, A, M, C0, C1, QS, G, snp):
     L = compute_lhs_slow(MM, MG, GG, n, p, d, s, snp)
     # L = compute_lhs(MM, MG, GG, n, p, d, s, 0)
 
-    # print(R)
-    # print(L)
-    # import numpy as np
-
-    # L0 = np.load("../denominator.npy")
-    # R0 = np.load("../nominator.npy")
-    # print(abs(R.reshape((-1, 1), order="C") - R0).max())
-    # print(abs(L - L0).max())
     return rsolve(L, R.reshape((-1, 1), order="C")).reshape((d + 1, p), order="F")
 
 
@@ -124,10 +117,10 @@ def compute_lhs(MM, MG, GG, n, p, d, s, l):
 def compute_gg(hG, n, s, p):
     GG = BlockDiag(p, s)
     for i in range(p):
-        a = _row_blk(hG, i, n)
+        a = _row_blk(hG.T, i, s)
         for j in range(p):
-            b = _row_blk(hG, j, n)
-            GG.set_block(i, j, dotd(a.T, b).reshape((p, s), order="F").sum(axis=0))
+            b = _row_blk(hG.T, j, s).T
+            GG.set_block(i, j, dotd(a, b))
     return GG
 
 
@@ -152,8 +145,6 @@ def compute_chunks(G):
 
 
 def get_D(C0, C1, QS):
-    C0 = C0
-    C1 = C1
     S0 = QS[1]
 
     p = C0.shape[0]
