@@ -5,6 +5,32 @@ from numpy import set_printoptions
 
 
 def triang(D, bsiz):
+    r""" Block triangularisation.
+
+    I want to compute
+
+    L = | L₀   0 |
+        | L₁  L₂ |
+
+    such that LLᵗ = D, for which L and D are
+    square, recursively-diagonal block matrices.
+
+    Let
+
+    | L₀   0 |   | L₀  L₁ᵗ |     | D₀  D₁ |
+    | L₁  L₂ | × |  0  L₂  |  =  | D₁  D₂ |
+
+    where L₀ and L₂ are square matrices. We have
+
+    L₀ = √(D₀)
+    L₁ = [ L₀⁻¹D₀₀  L₀⁻¹D₀₁ ]
+    L₂ = √(D₂ - L₁ᵗL₁)
+
+    for which √(X) = Y such that YYᵗ = X. By partitioning
+    D such that D₀ is a diagonal, square matrix we trivially
+    have L₀ and L₁. L₂ is found by recursively applying the
+    same algorithm.
+    """
     if D.shape[0] == bsiz:
         return sqrt(D)
 
